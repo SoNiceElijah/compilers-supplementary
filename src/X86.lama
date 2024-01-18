@@ -275,6 +275,7 @@ fun suffix (op) {
 -- Compiles stack machine code into a list of x86 instructions. Takes an environment
 -- and stack machine code, returns an updated environment and x86 code.
 fun compile (env, code) {
+  -- printf (showSM (code));
   foldl (
     fun ([env, scode], i) {
       var code = scode <+ Meta ("# " ++ showSMInsn (i) ++ "\n");
@@ -289,13 +290,56 @@ fun compile (env, code) {
           esac
       | LD (x) ->
           case env.addGlobal (x).allocate of
-	    [s, env] -> [env, code <+> move (env.loc (x), s)]
-	  esac
+            [s, env] -> [env, code <+> move (env.loc (x), s)]
+          esac
       | ST (x) ->
           case env.addGlobal (x).pop of
-	    [s, env] -> [env, code <+> move (s, env.loc (x))]
-	  esac
-      | _ -> failure ("codegeneration for instruction %s is not yet implemented\n", i.string)
+            [s, env] -> [env, code <+> move (s, env.loc (x))]
+          esac
+      | CONST (n) ->
+          case env.allocate of
+            [s, env] -> [env, code <+> move (L (n), s)]
+          esac
+      | BINOP (op) ->
+          case env.pop2 of
+            [x, y, env] -> 
+              case env.allocate of
+                [s, env] -> [
+                  env,
+                  case op of
+                    "+" -> code <+ Binop ("+", x, y) <+> move (y, s)
+                  | "-" -> code <+ Binop ("-", x, y) <+> move (y, s)
+                  | "*" -> code <+ Binop ("*", x, y) <+> move (y, s)
+                  | "/" -> code <+> move (y, eax) <+ Cltd <+ IDiv (x) <+> move (eax, s)
+                  | "%" -> code <+> move (y, eax) <+ Cltd <+ IDiv (x) <+> move (edx, s)
+                  | "<" -> code <+> move (x, edx) <+ Binop ("cmp", edx, y) <+ Set ( suffix ("<"), "%al" ) <+> move (eax, s)
+                  | ">" -> code <+> move (x, edx) <+ Binop ("cmp", edx, y) <+ Set ( suffix (">"), "%al" ) <+> move (eax, s)
+                  | "<=" -> code <+> move (x, edx) <+ Binop ("cmp", edx, y) <+ Set ( suffix ("<="), "%al" ) <+> move (eax, s)
+                  | ">=" -> code <+> move (x, edx) <+ Binop ("cmp", edx, y) <+ Set ( suffix (">="), "%al" ) <+> move (eax, s)
+                  | "==" -> code <+> move (x, edx) <+ Binop ("cmp", edx, y) <+ Set ( suffix ("=="), "%al" ) <+> move (eax, s)
+                  | "!=" -> code <+> move (x, edx) <+ Binop ("cmp", edx, y) <+ Set ( suffix ("!="), "%al" ) <+> move (eax, s)
+                  | "&&" -> code 
+                              <+ Binop ("^", eax, eax) 
+                              <+ Binop ("cmp",eax, x)
+                              <+ Set ( suffix ("!=" ), "%al")
+                              <+ Binop ("^", edx, edx) 
+                              <+ Binop ("cmp", edx, y)
+                              <+ Set ( suffix ("!=" ), "%dl")
+                              <+ Binop ("&&", edx, eax)
+                              <+> move (eax, s)
+                  | "!!" -> code 
+                              <+ Binop ("^", eax, eax) 
+                              <+ Binop ("cmp", eax, x)
+                              <+ Set ( suffix ("!=" ), "%al")
+                              <+ Binop ("^", edx, edx) 
+                              <+ Binop ("cmp", edx, y)
+                              <+ Set ( suffix ("!=" ), "%dl")
+                              <+ Binop ("!!", edx, eax)
+                              <+> move (eax, s)
+                  esac
+                ]
+              esac
+          esac
       esac
     }, [env, emptyBuffer ()], code)
 }
